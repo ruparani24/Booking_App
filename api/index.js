@@ -8,6 +8,8 @@ const cookieParser = require('cookie-parser');
 const imageDownloader = require('image-downloader');
 const multer = require('multer');
 const fs = require('fs');
+const Place = require('./models/Place.js');
+const Booking = require('./models/Booking.js');
 
 require('dotenv').config();
 
@@ -29,6 +31,16 @@ app.get('/test', (req,res) => {
 });
 
 //eHSRVAR98GFTXf3B
+
+function getUserDataFromReq(req) {
+    return new Promise((resolve, reject) => {
+        jwt.verify(req.cookies.token, jwtSecret, {}, async(err, userData) => {
+            if (err) throw err;
+            resolve(userData);
+        });
+    });
+}
+
 app.post('/register', async (req, res) => {
     const {name, email, password} = req.body;
     try{
@@ -108,6 +120,90 @@ app.post('/upload', photosMiddleware.array('photos', 100), (req, res) => {
         uploadedFiles.push(newPath.replace('uploads/',''));
     }
     res.json(uploadedFiles);
+});
+
+app.post('/places', (req,res) => {
+    const {token} = req.cookies;
+    const {
+        title, address, addedPhotos, 
+        description, perks, extraInfo, 
+        checkIn, checkOut, maxGuests} = req.body;
+    jwt.verify(token, jwtSecret, {}, async(err, userData) => {
+        if (err) throw err;
+        const placeDoc = await Place.create({
+            owner:userData.id, 
+            title, address, photos:addedPhotos, description, perks,
+            extraInfo, checkIn, checkOut, maxGuests
+        });
+        res.json(placeDoc);
+    });
+});
+
+app.get('/user-places', (req,res) => {
+    const {token} = req.cookies;
+    jwt.verify(token, jwtSecret, {}, async(err, userData) => {
+        const {id} = userData;
+        res.json( await Place.find({owner:id}) );
+    });
+});
+
+app.get('/places/:id', async (req, res) => {
+    const {id} = req.params;
+    res.json(await Place.findById(id));
+});
+
+app.put('/places', async (req, res) => {
+    const {token} = req.cookies;
+    const {
+        id, title, address, addedPhotos, description, 
+        perks, extraInfo, checkIn, checkOut, maxGuests, price,
+    } = req.body;
+    jwt.verify(token, jwtSecret, {}, async(err, userData) => {
+        if (err) throw err;
+        const placeDoc = await Place.findById(id);
+        if (userData.id === placeDoc.owner.toString()) {
+            placeDoc.set({
+                title, address, photos:addedPhotos, description, perks, 
+                extraInfo, checkIn, checkOut, maxGuests, price,
+            });
+            await placeDoc.save();
+            res.json('ok');
+        }
+    });
+});
+
+app.get('/places', async(req, res) => {
+    res.json(await Place.find());
+});
+
+app.post('/bookings', async (req, res) => {
+    const userData = await getUserDataFromReq(req);
+    try {
+        const {
+            place, checkIn, checkOut, numberOfGuests, name, phone, price,
+        } = req.body;
+
+        const booking = await Booking.create({
+            place, checkIn, checkOut, numberOfGuests, name, phone, price,
+            user:userData.id,
+        });
+
+        console.log("Saved Booking:", booking); // Debugging
+
+        if (!booking._id) {
+            return res.status(500).json({ error: "Booking ID is missing" });
+        }
+
+        res.json(booking); // Send back the created booking
+    } catch (err) {
+        console.error("Error creating booking:", err);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+app.get('/bookings', async (req, res) => {
+    const userData = await getUserDataFromReq(req);
+    res.json(await Booking.find({user:userData.id}).populate('place'));
 });
 
 app.listen(3000);
